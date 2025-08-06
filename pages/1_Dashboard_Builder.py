@@ -13,6 +13,20 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import advanced features
+from components.ai_insights import display_insights_panel, add_user_activity
+from components.collaboration import (
+    init_collaboration_state, display_collaboration_panel, 
+    display_sharing_options, display_collaborative_editing,
+    simulate_other_users, cleanup_old_users
+)
+from components.theme_manager import (
+    apply_custom_styling, create_theme_switcher, apply_theme_to_chart
+)
+from components.drag_drop_editor import (
+    create_grid_layout_editor, render_dashboard_with_layout
+)
+
 def apply_dashboard_filters(df, filters):
     """Apply dashboard filters to dataframe"""
     if not filters:
@@ -86,7 +100,16 @@ def create_chart(chart_type, data, x_col, y_col, color_col=None, title="Chart"):
         return None
 
 def main():
+    # Initialize advanced features
+    init_collaboration_state()
+    apply_custom_styling()
+    
+    # Simulate collaborative features
+    simulate_other_users()
+    cleanup_old_users()
+    
     st.title("📊 Dashboard Builder")
+    st.markdown("Create interactive dashboards with AI insights and real-time collaboration")
     
     # Initialize session state
     if 'dashboards' not in st.session_state:
@@ -94,9 +117,16 @@ def main():
     if 'data_sources' not in st.session_state:
         st.session_state.data_sources = {}
     
-    # Sidebar - Dashboard Management
+    # Check collaborative editing permissions
+    can_edit = display_collaborative_editing()
+    
+    # Sidebar - Dashboard Management  
     with st.sidebar:
         st.header("Dashboard Management")
+        
+        # Add collaboration panel and theme switcher
+        display_collaboration_panel()
+        create_theme_switcher()
         
         # Dashboard selection
         dashboard_options = ["Create New"] + list(st.session_state.dashboards.keys())
@@ -157,7 +187,11 @@ def main():
     current_dashboard = st.session_state.dashboards[st.session_state.current_dashboard]
     st.subheader(f"Building: {st.session_state.current_dashboard}")
     
-    # Chart builder section
+    # Advanced features tabs
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Chart Builder", "🎨 Layout Editor", "🧠 AI Insights", "🔗 Share & Embed", "⚙️ Settings"])
+    
+    with tab1:
+        # Chart builder section
     with st.expander("➕ Add New Chart", expanded=True):
         col1, col2 = st.columns([2, 1])
         
@@ -227,8 +261,83 @@ def main():
                     'title': chart_title,
                     'created': datetime.now().isoformat()
                 }
+                # Track collaboration activity
+                try:
+                    add_user_activity("chart_added", f"Added '{chart_title}' to dashboard")
+                except:
+                    pass
                 st.success(f"Chart '{chart_title}' added to dashboard!")
                 st.rerun()
+    
+    with tab2:
+        # Drag-and-drop layout editor
+        create_grid_layout_editor(st.session_state.current_dashboard)
+    
+    with tab3:
+        # AI Insights panel
+        if current_dashboard.get('charts'):
+            st.markdown("### AI-Powered Insights")
+            st.markdown("Get intelligent analysis of your dashboard data")
+            
+            # Select data source for insights
+            insight_data_sources = list(set([
+                chart_config['data_source'] 
+                for chart_config in current_dashboard['charts'].values()
+                if chart_config['data_source'] in st.session_state.data_sources
+            ]))
+            
+            if insight_data_sources:
+                selected_insight_source = st.selectbox(
+                    "Analyze Data Source",
+                    insight_data_sources,
+                    help="Select which data source to analyze for insights"
+                )
+                
+                if selected_insight_source:
+                    df = st.session_state.data_sources[selected_insight_source]
+                    
+                    # Get chart context for better insights
+                    relevant_charts = [
+                        chart_config for chart_config in current_dashboard['charts'].values()
+                        if chart_config['data_source'] == selected_insight_source
+                    ]
+                    
+                    chart_context = relevant_charts[0] if relevant_charts else None
+                    
+                    # Display insights panel
+                    display_insights_panel(df, chart_context)
+            else:
+                st.info("Add charts with data sources to generate insights")
+        else:
+            st.info("Create some charts first to generate AI insights")
+    
+    with tab4:
+        # Share and embed options
+        display_sharing_options(st.session_state.current_dashboard)
+    
+    with tab5:
+        # Dashboard settings and theme customization
+        st.subheader("Dashboard Settings")
+        
+        settings_col1, settings_col2 = st.columns(2)
+        
+        with settings_col1:
+            st.write("**Dashboard Configuration**")
+            dashboard_title = st.text_input("Dashboard Title", value=st.session_state.current_dashboard)
+            dashboard_description = st.text_area("Description", value=current_dashboard.get('description', ''))
+            
+            # Auto-refresh settings
+            auto_refresh = st.checkbox("Enable auto-refresh")
+            if auto_refresh:
+                refresh_interval = st.slider("Refresh interval (seconds)", 10, 300, 60)
+            
+            # Layout preferences
+            chart_spacing = st.slider("Chart spacing", 0.5, 3.0, 1.0)
+            show_chart_borders = st.checkbox("Show chart borders", value=True)
+        
+        with settings_col2:
+            from components.theme_manager import display_theme_settings
+            display_theme_settings()
     
     # Display current dashboard
     if current_dashboard.get('charts'):

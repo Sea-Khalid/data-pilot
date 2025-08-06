@@ -24,12 +24,28 @@ if 'current_dashboard' not in st.session_state:
     st.session_state.current_dashboard = None
 
 def main():
+    # Initialize theme and collaboration features
+    try:
+        from components.theme_manager import apply_custom_styling, create_theme_switcher
+        from components.collaboration import init_collaboration_state, display_collaboration_panel
+        
+        init_collaboration_state()
+        apply_custom_styling()
+    except ImportError:
+        pass  # Fallback if components not available
+    
     st.title("📊 Data Analytics Platform")
-    st.markdown("### Build custom dashboards and reports with ease")
+    st.markdown("### Build custom dashboards and reports with AI insights and real-time collaboration")
     
     # Sidebar navigation
     with st.sidebar:
         st.header("Navigation")
+        
+        # Add theme switcher
+        try:
+            create_theme_switcher()
+        except:
+            pass
         
         # Quick stats
         st.metric("Dashboards Created", len(st.session_state.dashboards))
