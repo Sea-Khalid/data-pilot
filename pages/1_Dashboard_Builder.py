@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import uuid
 
@@ -12,6 +12,53 @@ st.set_page_config(page_title="Dashboard Builder", page_icon="📊", layout="wid
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def apply_dashboard_filters(df, filters):
+    """Apply dashboard filters to dataframe"""
+    if not filters:
+        return df
+    
+    filtered_df = df.copy()
+    
+    try:
+        # Apply date filters
+        if 'date_column' in filters and 'date_range' in filters:
+            date_col = filters['date_column']
+            date_range = filters['date_range']
+            
+            if date_col in filtered_df.columns and len(date_range) == 2:
+                # Convert date column to datetime if needed
+                if not filtered_df[date_col].dtype.name.startswith('datetime'):
+                    filtered_df[date_col] = pd.to_datetime(filtered_df[date_col], errors='coerce')
+                
+                start_date = pd.to_datetime(date_range[0])
+                end_date = pd.to_datetime(date_range[1])
+                filtered_df = filtered_df[
+                    (filtered_df[date_col] >= start_date) & 
+                    (filtered_df[date_col] <= end_date)
+                ]
+        
+        # Apply category filters
+        if 'category_column' in filters and 'categories' in filters:
+            cat_col = filters['category_column']
+            categories = filters['categories']
+            
+            if cat_col in filtered_df.columns and categories:
+                filtered_df = filtered_df[filtered_df[cat_col].isin(categories)]
+        
+        # Apply region filters
+        if 'region_column' in filters and 'regions' in filters:
+            region_col = filters['region_column']
+            regions = filters['regions']
+            
+            if region_col in filtered_df.columns and regions:
+                filtered_df = filtered_df[filtered_df[region_col].isin(regions)]
+        
+        return filtered_df
+    
+    except Exception as e:
+        st.warning(f"Error applying filters: {str(e)}")
+        return df
 
 def create_chart(chart_type, data, x_col, y_col, color_col=None, title="Chart"):
     """Create a plotly chart based on type and parameters"""
@@ -188,30 +235,111 @@ def main():
         st.divider()
         st.subheader("Dashboard Preview")
         
-        # Dashboard filters
-        with st.expander("🔍 Dashboard Filters"):
-            filter_col1, filter_col2 = st.columns(2)
+        # Enhanced Dashboard filters
+        with st.expander("🔍 Dashboard Filters", expanded=False):
+            st.markdown("Apply filters to all charts in this dashboard:")
+            
+            # Initialize filter state
+            if 'dashboard_filters' not in st.session_state:
+                st.session_state.dashboard_filters = {}
+            
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            
+            # Collect all available filter options from data sources used in dashboard
+            all_date_columns = set()
+            all_category_columns = set()
+            all_region_columns = set()
+            
+            for chart_config in current_dashboard['charts'].values():
+                data_source_name = chart_config['data_source']
+                if data_source_name in st.session_state.data_sources:
+                    df = st.session_state.data_sources[data_source_name]
+                    
+                    # Date columns
+                    date_cols = [col for col in df.columns if 
+                                df[col].dtype.name.startswith('datetime') or 
+                                'date' in col.lower()]
+                    all_date_columns.update(date_cols)
+                    
+                    # Category columns (text/object columns)
+                    cat_cols = [col for col in df.columns if 
+                               df[col].dtype == 'object' and 
+                               ('category' in col.lower() or 'type' in col.lower() or 'class' in col.lower())]
+                    all_category_columns.update(cat_cols)
+                    
+                    # Region columns
+                    region_cols = [col for col in df.columns if 
+                                  df[col].dtype == 'object' and 
+                                  ('region' in col.lower() or 'location' in col.lower() or 'area' in col.lower())]
+                    all_region_columns.update(region_cols)
             
             with filter_col1:
-                # Date range filter (if applicable)
-                date_columns = []
-                for data_source in st.session_state.data_sources.values():
-                    date_columns.extend([col for col in data_source.columns if 
-                                       data_source[col].dtype.name.startswith('datetime') or 
-                                       'date' in col.lower()])
-                
-                if date_columns:
-                    st.date_input("Date Range", value=datetime.now().date(), key="date_filter")
+                st.subheader("📅 Date Filters")
+                if all_date_columns:
+                    selected_date_col = st.selectbox("Date Column", ["None"] + list(all_date_columns))
+                    if selected_date_col != "None":
+                        date_range = st.date_input(
+                            "Select Date Range",
+                            value=[datetime.now().date() - timedelta(days=30), datetime.now().date()],
+                            key="dashboard_date_filter"
+                        )
+                        st.session_state.dashboard_filters['date_column'] = selected_date_col
+                        st.session_state.dashboard_filters['date_range'] = date_range
+                else:
+                    st.info("No date columns found in data")
             
             with filter_col2:
-                # Category filter
-                category_columns = []
-                for data_source in st.session_state.data_sources.values():
-                    category_columns.extend([col for col in data_source.columns if 
-                                           data_source[col].dtype == 'object'])
-                
-                if category_columns:
-                    st.multiselect("Filter by Category", options=[], key="category_filter")
+                st.subheader("📊 Category Filters")
+                if all_category_columns:
+                    selected_cat_col = st.selectbox("Category Column", ["None"] + list(all_category_columns))
+                    if selected_cat_col != "None":
+                        # Get unique values for selected category column
+                        cat_values = set()
+                        for chart_config in current_dashboard['charts'].values():
+                            data_source_name = chart_config['data_source']
+                            if data_source_name in st.session_state.data_sources:
+                                df = st.session_state.data_sources[data_source_name]
+                                if selected_cat_col in df.columns:
+                                    cat_values.update(df[selected_cat_col].dropna().unique())
+                        
+                        selected_categories = st.multiselect(
+                            "Select Categories",
+                            options=list(cat_values),
+                            key="dashboard_category_filter"
+                        )
+                        st.session_state.dashboard_filters['category_column'] = selected_cat_col
+                        st.session_state.dashboard_filters['categories'] = selected_categories
+                else:
+                    st.info("No category columns found")
+            
+            with filter_col3:
+                st.subheader("🗺️ Region Filters")
+                if all_region_columns:
+                    selected_region_col = st.selectbox("Region Column", ["None"] + list(all_region_columns))
+                    if selected_region_col != "None":
+                        # Get unique values for selected region column
+                        region_values = set()
+                        for chart_config in current_dashboard['charts'].values():
+                            data_source_name = chart_config['data_source']
+                            if data_source_name in st.session_state.data_sources:
+                                df = st.session_state.data_sources[data_source_name]
+                                if selected_region_col in df.columns:
+                                    region_values.update(df[selected_region_col].dropna().unique())
+                        
+                        selected_regions = st.multiselect(
+                            "Select Regions",
+                            options=list(region_values),
+                            key="dashboard_region_filter"
+                        )
+                        st.session_state.dashboard_filters['region_column'] = selected_region_col
+                        st.session_state.dashboard_filters['regions'] = selected_regions
+                else:
+                    st.info("No region columns found")
+            
+            # Clear filters button
+            if st.button("🗑️ Clear All Filters", type="secondary"):
+                st.session_state.dashboard_filters = {}
+                st.rerun()
         
         # Display charts in grid layout
         charts = current_dashboard['charts']
@@ -238,37 +366,47 @@ def main():
                                 del current_dashboard['charts'][chart_key]
                                 st.rerun()
                         
-                        # Render chart
+                        # Render chart with filters applied
                         try:
                             data_source = chart_config['data_source']
                             if data_source in st.session_state.data_sources:
                                 df = st.session_state.data_sources[data_source]
                                 
+                                # Apply dashboard filters first
+                                filtered_df = apply_dashboard_filters(df, st.session_state.get('dashboard_filters', {}))
+                                
+                                # Show filter status
+                                if len(filtered_df) < len(df):
+                                    st.caption(f"📊 Showing {len(filtered_df):,} of {len(df):,} records (filtered)")
+                                
                                 # Apply aggregation for better visualization
-                                display_df = df.copy()
+                                display_df = filtered_df.copy()
                                 x_col = chart_config['x_column']
                                 y_col = chart_config['y_column']
                                 color_col = chart_config.get('color_column')
                                 
-                                if df[x_col].dtype == 'object' and chart_config['type'] != "Scatter Plot":
-                                    if color_col:
-                                        display_df = df.groupby([x_col, color_col])[y_col].sum().reset_index()
+                                if not display_df.empty:
+                                    if filtered_df[x_col].dtype == 'object' and chart_config['type'] != "Scatter Plot":
+                                        if color_col and color_col in filtered_df.columns:
+                                            display_df = filtered_df.groupby([x_col, color_col])[y_col].sum().reset_index()
+                                        else:
+                                            display_df = filtered_df.groupby(x_col)[y_col].sum().reset_index()
+                                    
+                                    fig = create_chart(
+                                        chart_config['type'],
+                                        display_df,
+                                        x_col,
+                                        y_col,
+                                        color_col,
+                                        chart_config['title']
+                                    )
+                                    
+                                    if fig:
+                                        st.plotly_chart(fig, use_container_width=True)
                                     else:
-                                        display_df = df.groupby(x_col)[y_col].sum().reset_index()
-                                
-                                fig = create_chart(
-                                    chart_config['type'],
-                                    display_df,
-                                    x_col,
-                                    y_col,
-                                    color_col,
-                                    chart_config['title']
-                                )
-                                
-                                if fig:
-                                    st.plotly_chart(fig, use_container_width=True)
+                                        st.error("Failed to render chart")
                                 else:
-                                    st.error("Failed to render chart")
+                                    st.warning("No data available after applying filters")
                             else:
                                 st.error(f"Data source '{data_source}' not found")
                         except Exception as e:
